@@ -1,13 +1,9 @@
 /*
  * FannieMae.cpp
- *      Author: Emily and Elena
+ *      Author: Emily Singleton and Elena Oh
  *
  */
 
-//things to add:
-	//randomly select 10,000 (add this to the query)
-	//through the server side run the statistics like mean and stdev (input into query)
-	//Do at least states - retrieve unique states
 
 #include <pqxx/pqxx>
 #include <string>
@@ -20,9 +16,6 @@ using namespace std;
 
 
 const string originalInt = "original_interest_rate", unpaidBal = "upb", loanToVal = "ltv", combLoanToVal = "cltv", debtToInc = "dti", credScore = "credit_score";
-
-//columns (can limit them) include state and bank (implement dictionary to filter)
-//ask columns, ask want to limit by bank or state, then record statistics
 
 /*
  * Returns a vector of unique states in alphabetical order from the given year and quarter
@@ -76,6 +69,7 @@ vector<string> findStates(int year, int quarter){
  */
 vector<double> sql(int year, int quarter, string state, string column1, string column2){
 	//Variables will hold the SQL query if the database successfully connects
+	string count;
 	string mean1;
 	string mean2;
 	string stdev1;
@@ -102,6 +96,7 @@ vector<double> sql(int year, int quarter, string state, string column1, string c
 		string quarterString = "Q" + to_string(quarter);
 
 		if(state == "none"){
+			count = "SELECT Count(DISTINCT loan_id) FROM acquisitions.\"acquisition" + yearString + quarterString + "\";";
 			mean1 = "SELECT avg(" + column1 + ") FROM acquisitions.\"acquisition" + yearString + quarterString + "\";";
 			mean2 = "SELECT avg(" + column2 + ") FROM acquisitions.\"acquisition" + yearString + quarterString + "\";";
 			stdev1 = "SELECT stddev_pop(" + column1 + ") FROM acquisitions.\"acquisition" + yearString + quarterString + "\";";
@@ -109,25 +104,31 @@ vector<double> sql(int year, int quarter, string state, string column1, string c
 			corr = "SELECT corr(" + column1 + ", " + column2 + ") FROM acquisitions.\"acquisition" + yearString + quarterString + "\";";
 		}
 		else{
+			count = count = "SELECT Count(DISTINCT loan_id) FROM acquisitions.\"acquisition" + yearString + quarterString + "\" WHERE property_state = '" + state + "';";
 			mean1 = "SELECT avg(" + column1 + ") FROM acquisitions.\"acquisition" + yearString + quarterString + "\" WHERE property_state = '" + state + "';";
-						mean2 = "SELECT avg(" + column2 + ") FROM acquisitions.\"acquisition" + yearString + quarterString + "\" WHERE property_state = '" + state + "';";
-						stdev1 = "SELECT stddev_pop(" + column1 + ") FROM acquisitions.\"acquisition" + yearString + quarterString + "\" WHERE property_state = '" + state + "';";
-						stdev2 = "SELECT stddev_pop(" + column2 + ") FROM acquisitions.\"acquisition" + yearString + quarterString + "\" WHERE property_state = '" + state + "';";
-						corr = "SELECT corr(" + column1 + ", " + column2 + ") FROM acquisitions.\"acquisition" + yearString + quarterString + "\" WHERE property_state = '" + state + "';";
+			mean2 = "SELECT avg(" + column2 + ") FROM acquisitions.\"acquisition" + yearString + quarterString + "\" WHERE property_state = '" + state + "';";
+			stdev1 = "SELECT stddev_pop(" + column1 + ") FROM acquisitions.\"acquisition" + yearString + quarterString + "\" WHERE property_state = '" + state + "';";
+			stdev2 = "SELECT stddev_pop(" + column2 + ") FROM acquisitions.\"acquisition" + yearString + quarterString + "\" WHERE property_state = '" + state + "';";
+			corr = "SELECT corr(" + column1 + ", " + column2 + ") FROM acquisitions.\"acquisition" + yearString + quarterString + "\" WHERE property_state = '" + state + "';";
 		}
 
 		nontransaction N(C);
 
 		//Executing the SQL queries
+		result countResult( N.exec( count ));
 		result mean1Result( N.exec( mean1 ));
 		result mean2Result( N.exec( mean2 ));
 		result stdev1Result( N.exec( stdev1 ));
 		result stdev2Result( N.exec( stdev2 ));
 		result corrResult( N.exec( corr ));
 
-		//Inserting mean1 into the vector that is returned
 		double holder;
-		result::const_iterator iterator = mean1Result.begin();
+		result::const_iterator iterator = countResult.begin();
+		iterator[0].to(holder);
+		dataPoints.push_back(holder);
+
+		//Inserting mean1 into the vector that is returned
+		iterator = mean1Result.begin();
 		iterator[0].to(holder);
 		dataPoints.push_back(holder);
 
@@ -160,52 +161,6 @@ vector<double> sql(int year, int quarter, string state, string column1, string c
 	return dataPoints;
 }
 
-////Calculates the sum
-//double sumFunc(vector<double> dataPoints){
-//	double sum = 0.0;
-//	for(int i = 0; i < dataPoints.size(); i++){
-//		sum+=dataPoints[i];
-//	}
-//	return sum;
-//}
-//
-////Calculates the mean
-//double mean(vector<double> dataPoints){
-//	if(dataPoints.size() == 0){
-//		cerr << "COUNT = 0 CANNOT CALCULATE MEAN";
-//		return 0.0;
-//	}
-//	double meanVal = sumFunc(dataPoints)/dataPoints.size();
-//	return meanVal;
-//}
-//
-//double sqsumFunc(vector<double> dataPoints)
-//{
-//	double s = 0;
-//	for (int i = 0; i < dataPoints.size(); i++)
-//	{
-//		s += pow(dataPoints[i], 2);
-//	}
-//	return s;
-//}
-//
-//double stdevFunc(vector<double> dataPoints)
-//{
-//	double N = dataPoints.size();
-//	return pow(sqsumFunc(dataPoints) / N - pow(sumFunc(dataPoints) / N, 2), 0.5);
-//}
-//
-//
-//
-//double correlationFunc(vector<double> X, vector<double> Y){
-//	double result;
-//	for(int i = 0; i < X.size(); i++){
-//		result += (X[i] - mean(X))*(Y[i] - mean(Y));
-//	}
-//	result = result / (X.size()*stdevFunc(X)* stdevFunc(Y));
-//	return result;
-//}
-
 struct stats{
 	//Makes and SQL call to get vector of the column
 	int year;
@@ -224,11 +179,12 @@ struct stats{
 	vector<double> dataPoints = sql(year, quarter, state, column1, column2);
 
 	//Statistics
-	const double meanVal1 = dataPoints[0];
-	const double meanVal2 = dataPoints[1];
-	const double stdevVal1 = dataPoints[2];
-	const double stdevVal2 = dataPoints[3];
-	const double corr = dataPoints[4];
+	const double count = dataPoints[0];
+	const double meanVal1 = dataPoints[1];
+	const double meanVal2 = dataPoints[2];
+	const double stdevVal1 = dataPoints[3];
+	const double stdevVal2 = dataPoints[4];
+	const double corr = dataPoints[5];
 
 };
 
@@ -385,6 +341,7 @@ int main()
 	}
 	else
 		cout << endl;
+	cout << "Number of loans: " << usersStats.count << endl;
 	cout << "Mean for " << column1 << ": "<< usersStats.meanVal1 << endl;
 	cout << "Mean for " << column2 << ": "<< usersStats.meanVal2 << endl;
 	cout << "Standard Deviation for " << column1 << ": " << usersStats.stdevVal1 << endl;
